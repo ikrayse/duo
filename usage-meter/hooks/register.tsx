@@ -11,6 +11,7 @@ import type { EngineInterface, ModelUsage, Register } from 'claude-code'
 import type { Limit, ModelTally, Sample, SessionStats, UsageSnap } from '../types'
 
 const PANE = 'usage-meter'
+const PANE_WIDTH = 360
 const HOUR = 3600000
 const HISTORY_MS = 7 * 24 * HOUR
 
@@ -258,8 +259,9 @@ function sparkline(x: number, y: number, w: number, h: number, pts: readonly Sam
   return out
 }
 
-function dashboardSvg(v: View): { source: string; alt: string } {
-  const W = 720
+/** `W` is the drawing width: 720 for the card, narrow for the pane, where sections stack. */
+function dashboardSvg(v: View, W = 720): { source: string; alt: string } {
+  const narrow = W < 520
   const { u, list, samples, st, now } = v
   const limits = u?.limits ?? []
   const ctx = u?.contextPercent ?? 0
@@ -289,12 +291,16 @@ function dashboardSvg(v: View): { source: string; alt: string } {
     sub1: u?.contextTokens !== undefined ? fmtTok(u.contextTokens) + ' / ' + fmtTok(u.contextWindow) : '—',
     sub2: 'this conversation',
   })
-  const n = Math.min(4, gauges.length)
-  const colW = (W - 48) / n
-  s += `<rect x="16" y="${y}" width="${W - 32}" height="176" rx="12" fill="${C.panel}"/>`
-  gauges.slice(0, n).forEach((g, i) => {
-    const cx = 24 + colW * i + colW / 2
-    const cy = y + 62
+  // Four gauges to a row on the card, two in the pane.
+  const perRow = Math.min(narrow ? 2 : 4, gauges.length)
+  const gaugeRows = Math.ceil(gauges.length / perRow)
+  const colW = (W - 48) / perRow
+  const note = limits.length === 0 ? (narrow ? 34 : 0) : 0
+  const gh = gaugeRows * 168 + 8 + note
+  s += `<rect x="16" y="${y}" width="${W - 32}" height="${gh}" rx="12" fill="${C.panel}"/>`
+  gauges.forEach((g, i) => {
+    const cx = 24 + colW * (i % perRow) + colW / 2
+    const cy = y + 62 + Math.floor(i / perRow) * 168
     s += ring(cx, cy, 40, g.pct, g.color)
     s += txt(cx, cy + 7, Math.round(g.pct) + '%', 20, C.text, 600, 'middle')
     s += txt(cx, cy + 62, g.label, 13, C.text, 600, 'middle')
@@ -302,13 +308,19 @@ function dashboardSvg(v: View): { source: string; alt: string } {
     s += txt(cx, cy + 96, g.sub2, 12, C.dim, 400, 'middle')
   })
   if (limits.length === 0) {
-    s += txt(W / 2, y + 168, 'Plan limits appear after the next reply (Pro/Max plans only)', 11, C.faint, 400, 'middle')
+    if (narrow) {
+      s += txt(W / 2, y + gh - 26, 'Plan limits appear after the next reply', 12, C.faint, 400, 'middle')
+      s += txt(W / 2, y + gh - 10, '(Pro/Max plans only)', 12, C.faint, 400, 'middle')
+    } else {
+      s += txt(W / 2, y + 168, 'Plan limits appear after the next reply (Pro/Max plans only)', 11, C.faint, 400, 'middle')
+    }
   }
-  y += 192
+  y += gh + 16
 
   // pace + reset details per limit
   if (limits.length > 0) {
-    const rowH = 26
+    // In the pane each limit takes two lines: name and reset time, then the pace.
+    const rowH = narrow ? 44 : 26
     const h = 20 + limits.length * rowH
     s += `<rect x="16" y="${y}" width="${W - 32}" height="${h}" rx="12" fill="${C.panel}"/>`
     limits.forEach((l, i) => {
@@ -317,7 +329,7 @@ function dashboardSvg(v: View): { source: string; alt: string } {
       const icon = p.kind === 'hits' ? C.amber : p.kind === 'safe' ? C.green : C.faint
       s += `<circle cx="34" cy="${ry - 4}" r="4" fill="${icon}"/>`
       s += txt(46, ry, limitName(l.kind), 13, C.text, 600)
-      s += txt(150, ry, paceText(p), 12, C.dim)
+      s += txt(narrow ? 46 : 150, narrow ? ry + 18 : ry, paceText(p), 12, C.dim)
       s += txt(W - 32, ry, resetClock(l) ? 'resets ' + resetClock(l) : '', 12, C.dim, 400, 'end')
     })
     y += h + 16
@@ -347,20 +359,24 @@ function dashboardSvg(v: View): { source: string; alt: string } {
       u?.costUsd !== undefined && st.turns > 0 ? '$' + (u.costUsd / st.turns).toFixed(2) + ' / turn' : 'API-priced',
     ],
   ]
-  const tw = (W - 32 - 12 * 3) / 4
+  const tileCols = narrow ? 2 : 4
+  const tw = (W - 32 - 12 * (tileCols - 1)) / tileCols
   tiles.forEach(([label, big, small], i) => {
-    const tx = 16 + i * (tw + 12)
-    s += `<rect x="${tx}" y="${y}" width="${tw}" height="78" rx="12" fill="${C.panel}"/>`
-    s += txt(tx + 14, y + 22, label, 12, C.dim)
-    s += txt(tx + 14, y + 50, big, 22, C.text, 600)
-    s += txt(tx + 14, y + 68, small, 11, C.faint)
+    const tx = 16 + (i % tileCols) * (tw + 12)
+    const ty = y + Math.floor(i / tileCols) * 90
+    s += `<rect x="${tx}" y="${ty}" width="${tw}" height="78" rx="12" fill="${C.panel}"/>`
+    s += txt(tx + 14, ty + 22, label, 12, C.dim)
+    s += txt(tx + 14, ty + 50, big, 22, C.text, 600)
+    s += txt(tx + 14, ty + 68, small, 11, C.faint)
   })
-  y += 94
+  y += Math.ceil(tiles.length / tileCols) * 90 + 4
 
   // models
   const sorted = list.slice().sort((a, b) => b.input + b.output - (a.input + a.output))
   const grand = sorted.reduce((sum, m) => sum + m.input + m.output + m.cacheRead + m.cacheWrite, 0)
-  const mh = 54 + Math.max(1, sorted.length) * 20
+  // In the pane each model's figures go on a second line under its name.
+  const modelH = narrow ? 38 : 20
+  const mh = 54 + Math.max(1, sorted.length) * modelH
   s += `<rect x="16" y="${y}" width="${W - 32}" height="${mh}" rx="12" fill="${C.panel}"/>`
   s += txt(32, y + 26, 'Tokens by model', 13, C.text, 600)
   if (sorted.length === 0 || grand === 0) {
@@ -373,10 +389,12 @@ function dashboardSvg(v: View): { source: string; alt: string } {
       const w = Math.max(2, share * bw)
       s += `<rect x="${bx.toFixed(1)}" y="${y + 36}" width="${w.toFixed(1)}" height="8" fill="${MODEL_COLORS[i % MODEL_COLORS.length]}"/>`
       bx += w
-      const ly = y + 64 + i * 20
+      const ly = y + 64 + i * modelH
+      const figures = fmtTok(m.input + m.cacheRead + m.cacheWrite) + ' in · ' + fmtTok(m.output) + ' out · ' + m.steps + ' req · ' + Math.round(share * 100) + '%'
       s += `<rect x="32" y="${ly - 9}" width="10" height="10" rx="2" fill="${MODEL_COLORS[i % MODEL_COLORS.length]}"/>`
       s += txt(50, ly, m.model.replace(/^claude-/, ''), 12, C.text)
-      s += txt(W - 32, ly, fmtTok(m.input + m.cacheRead + m.cacheWrite) + ' in · ' + fmtTok(m.output) + ' out · ' + m.steps + ' req · ' + Math.round(share * 100) + '%', 12, C.dim, 400, 'end')
+      if (narrow) s += txt(50, ly + 17, figures, 12, C.dim)
+      else s += txt(W - 32, ly, figures, 12, C.dim, 400, 'end')
     })
   }
   y += mh + 16
@@ -524,7 +542,8 @@ export const register: Register = on => {
     const v = await view($)
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)
-      const d = dashboardSvg(v)
+      // A narrow drawing that stacks, so the side pane scales it up, not down.
+      const d = dashboardSvg(v, PANE_WIDTH)
       return <Svg source={d.source} alt={d.alt} />
     }
     return textDashboard($, e, v, (e.props.bodyColumns ?? 40) - 16)
