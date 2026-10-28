@@ -1,0 +1,8 @@
+{
+  "name": "usage-meter",
+  "version": "0.1.0",
+  "description": "Live usage UI: plan limit bars, % left, reset countdowns, context fill, cost and tokens by model",
+  "author": { "name": "Dani" },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "duo-market",
+  "owner": { "name": "Dani" },
+  "plugins": [
+    {
+      "name": "usage-meter",
+      "source": "./usage-meter",
+      "description": "Live usage UI: plan limit bars, % left, reset countdowns, context, cost, tokens by model"
+    }
+  ]
+}
