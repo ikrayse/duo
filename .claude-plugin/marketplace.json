@@ -1,11 +1,12 @@
 {
   "name": "duo-market",
+  "description": "Dani's Claude mods",
   "owner": { "name": "Dani" },
   "plugins": [
     {
       "name": "usage-meter",
       "source": "./usage-meter",
-      "description": "Live usage UI: plan limit bars, % left, reset countdowns, context, cost, tokens by model"
+      "description": "Live usage dashboard: limit gauges, reset countdowns, pace forecast, history chart, context, tokens, cache, cost"
     }
   ]
 }
