@@ -1,8 +1,8 @@
 // usage-meter — live usage UI for Claude Code / Cowork sessions.
 // Observes only: it never changes models, prompts or tools.
 //
-//   /meter             live dashboard card in the conversation (drawn gauges in the app)
-//   /meter pane        the same dashboard in a side pane
+//   /meter             live dashboard in a side pane that stays beside the chat
+//   /meter card        a snapshot card in the conversation (scrolls with it)
 //   /meter band on|off show or hide the compact bar above the prompt
 
 import { atom, read, update } from 'claude-code'
@@ -187,7 +187,8 @@ async function view($: EngineInterface): Promise<View> {
     list: await read($, tallies),
     samples: await read($, history),
     st: await read($, stats),
-    now: Date.now(),
+    // The mod's clock, not Date: Date is not guaranteed to tick inside the module.
+    now: await $.clock.now(),
   }
 }
 
@@ -441,14 +442,14 @@ export const register: Register = on => {
       // no reading yet; session.measure fills it in
     }
     $.clock.every(1000, () => $.ui.invalidate('ui.render'))
-    $.clock.every(60000, () => {
+    $.clock.every(15000, () => {
       void refreshUsage($).catch(() => undefined)
     })
     try {
       await $.command.register({
         name: 'meter',
         description: 'Live usage dashboard: limits, resets, pace, context, tokens, cost',
-        argumentHint: '[pane | band on|off]',
+        argumentHint: '[card | band on|off]',
         immediate: true,
       })
     } catch (err) {
@@ -463,9 +464,10 @@ export const register: Register = on => {
     await update($, usage, () => snap)
     if (e.changed.includes('rateLimits')) {
       await recordSamples($, snap.limits)
+      const now = await $.clock.now()
       for (const l of snap.limits) {
         if (l.percentUsed >= 90) {
-          $.ui.toast(limitName(l.kind) + ' limit at ' + l.percentUsed + '% — resets in ' + resetIn(l, Date.now()))
+          $.ui.toast(limitName(l.kind) + ' limit at ' + l.percentUsed + '% — resets in ' + resetIn(l, now))
         }
       }
     }
@@ -497,17 +499,18 @@ export const register: Register = on => {
       await $.store.set('band', val === 'on')
       return { text: 'Usage bar ' + (val === 'on' ? 'shown.' : 'hidden.') }
     }
-    if (sub === 'pane') {
-      await $.ui.open({ id: PANE, title: 'Usage', focus: true, closeOnEscape: true })
-      return {}
+    if (sub === 'card') {
+      // The row this prints is redrawn as the dashboard by the CommandOutput hook below.
+      return { text: 'Usage dashboard' }
     }
-    // The row this prints is redrawn as a live dashboard by the CommandOutput hook below.
-    return { text: 'Usage dashboard' }
+    // Default (and the old `/meter pane`): a pane beside the chat, so it never scrolls away.
+    const opened = await $.ui.open({ id: PANE, title: 'Usage' })
+    return { text: opened.isPlaced ? 'Usage pane open beside the chat.' : 'Usage pane could not open: ' + opened.reason }
   })
 
-  // The live dashboard card, drawn in the conversation where /meter printed its row.
+  // `/meter card`: the dashboard drawn in the conversation where the command printed its row.
   on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
-    if (e.props.command !== 'meter' || e.props.isErrored || e.props.args.trim() !== '') return next(e)
+    if (e.props.command !== 'meter' || e.props.isErrored || e.props.args.trim().toLowerCase() !== 'card') return next(e)
     const v = await view($)
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)

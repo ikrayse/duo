@@ -9,7 +9,7 @@ const CARD = {
   plugin: 'usage-meter',
   component: 'CommandOutput',
   requestId: 'msg-1',
-  props: { command: 'meter', args: '', text: 'Usage dashboard', isErrored: false },
+  props: { command: 'meter', args: 'card', text: 'Usage dashboard', isErrored: false },
 } as const
 
 const BAND = {
@@ -26,7 +26,14 @@ const HISTORY = Array.from({ length: 19 }, (_, i) => ({
   pct: Math.round(12 + (22 * i) / 18),
 }))
 
-function engine(on: On, step = true) {
+const PANE = {
+  plugin: 'usage-meter',
+  component: 'Pane',
+  requestId: 'usage-meter',
+  props: { title: 'Usage', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 30 }, view: {} },
+} as const
+
+function engine(on: On, step = true, opened: string[] = []) {
   mock.store(on, { history: HISTORY })
   mock.clock(on, { now: NOW })
   on('session.usage', () => ({
@@ -41,7 +48,7 @@ function engine(on: On, step = true) {
     },
   }))
   on('command.register', () => ({ value: { command: 'meter' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', (_, e) => (opened.push(e.id), { value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.complete', () => ({ text: '' }))
   if (step) on('turn.step', async function* (_, e) {
@@ -71,7 +78,20 @@ async function work($: Parameters<Parameters<typeof test>[1]>[0]) {
   }
 }
 
-test('/meter draws a live SVG dashboard card in the app', async ($, on) => {
+test('/meter opens the dashboard in a pane beside the chat', async ($, on) => {
+  const opened: string[] = []
+  engine(on, true, opened)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.command.run({ command: 'meter', args: '' })
+  expect(opened).toEqual(['usage-meter'])
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const svg = await ui.find({ type: 'Svg' })
+  expect(String(svg?.props.alt)).toContain('5-hour 34% used, resets in 2h')
+  await ui.unmount()
+})
+
+test('/meter card draws an SVG dashboard card in the conversation', async ($, on) => {
   engine(on)
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await work($)

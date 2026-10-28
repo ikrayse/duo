@@ -1,6 +1,6 @@
 {
   "name": "usage-meter",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Live usage dashboard: limit gauges, reset countdowns, pace forecast, history chart, context, tokens, cache, cost",
   "author": { "name": "Dani" },
   "license": "MIT",
